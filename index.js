@@ -50,8 +50,8 @@ const HTML_PAGE = `
 <main>
   <header>
     <div class="eyebrow">SUN MAY / AUDIO</div>
-    <h1>短视频配音节点</h1>
-    <p class="hint">粘贴文案，选择声音，生成 MP3。下载后可导入剪映、PR 或视频合成脚本。</p>
+    <h1>品牌展示片配音节点</h1>
+    <p class="hint">为产品与生活方式画面配音。默认 Thiha 男声、1.0× 语速，留出呼吸感；也可选择 Nilar 女声。生成 MP3 后导入剪映、PR 或视频合成脚本。</p>
   </header>
   <section class="card" aria-label="生成配音">
     <form id="speech-form">
@@ -61,11 +61,16 @@ const HTML_PAGE = `
       <label for="input">配音文案</label>
       <textarea id="input" required maxlength="1500" placeholder="粘贴缅甸语、中文或英语短视频文案…"></textarea>
       <small id="input-limit">单次最多 1500 个字符，适合一段短视频配音。</small>
-      <details><summary>查看缅甸语 SSML 示例</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">&lt;speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="my-MM"&gt;
-  &lt;voice name="my-MM-NilarNeural"&gt;
-    &lt;prosody rate="+8%" pitch="+3%"&gt;
-      မင်္ဂလာပါ။ &lt;break time="180ms"/&gt;
-      SUN MAY Passion Fruit ၁ လီတာဗူးလေးကို ရေခဲလေးနဲ့ သောက်ကြည့်နော်။
+      <details><summary>查看缅甸语品牌片 SSML 示例</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">&lt;speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="my-MM"&gt;
+  &lt;voice name="my-MM-ThihaNeural"&gt;
+    &lt;prosody rate="+0%" pitch="+0Hz"&gt;
+      သဘာဝပင်မှည့်သီးရဲ့ &lt;break time="350ms"/&gt; စစ်မှန်တဲ့ ရနံ့နဲ့ အရသာ။
+      &lt;break time="600ms"/&gt;
+      တစ်ငုံချင်းစီမှာ ခံစားရမယ့် ပင်မှည့်သီးစေ့လေးတွေရဲ့ လန်းဆန်းမှု။
+      &lt;break time="600ms"/&gt;
+      မိသားစုနဲ့အတူ &lt;break time="350ms"/&gt; အေးမြချိုမြိန်တဲ့ အခိုက်အတန့်တိုင်းအတွက်၊ SUN MAY Passion Fruit Drink ၁ လီတာ။
+      &lt;break time="700ms"/&gt;
+      SUN MAY &lt;break time="400ms"/&gt; သဘာဝရဲ့ စစ်မှန်သော ရွေးချယ်မှု။
     &lt;/prosody&gt;
   &lt;/voice&gt;
 &lt;/speak&gt;</pre></details>
@@ -94,7 +99,7 @@ const HTML_PAGE = `
 </main>
 <script>
   const presets = {
-    'my-MM': [['my-MM-NilarNeural', 'Nilar · 女声'], ['my-MM-ThihaNeural', 'Thiha · 男声']],
+    'my-MM': [['my-MM-ThihaNeural', 'Thiha · 男声'], ['my-MM-NilarNeural', 'Nilar · 女声']],
     'zh-CN': [['zh-CN-XiaoxiaoNeural', '晓晓 · 女声'], ['zh-CN-YunxiNeural', '云希 · 男声']],
     'en-US': [['en-US-JennyNeural', 'Jenny · 女声'], ['en-US-GuyNeural', 'Guy · 男声']]
   };
