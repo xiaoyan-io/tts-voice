@@ -10,4 +10,6 @@
 
 检查：`node --test tests/speech.test.mjs`。
 
+已新增独立的密码保护接口与 Home Assistant TTS 集成，部署和验收见 [api/README.md](api/README.md)。网页原版保持不变。
+
 缅甸语改版保存在 `feat-burmese-history` 分支。此次恢复不删除浏览器中已有的改版历史数据；原版界面不展示这些记录。

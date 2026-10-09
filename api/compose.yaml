@@ -1,0 +1,18 @@
+services:
+  tts-voice-api:
+    image: node:22-alpine
+    container_name: tts-voice-api
+    restart: unless-stopped
+    user: "1000:1000"
+    working_dir: /app
+    command: ["node", "api/server.mjs"]
+    env_file: .env
+    environment:
+      PORT: "8789"
+    ports:
+      - "127.0.0.1:8789:8789"
+    volumes:
+      - "..:/app:ro"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]

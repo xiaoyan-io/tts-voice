@@ -1,0 +1,1 @@
+{"title":"TTS Voice API","config":{"step":{"user":{"title":"连接中文配音接口","data":{"url":"接口地址","password":"访问密码"}}},"error":{"invalid_url":"请输入 HTTPS 地址或本机 HTTP 地址，不包含路径或密码","invalid_auth":"访问密码错误","cannot_connect":"无法连接受保护的配音接口"},"abort":{"already_configured":"这个接口已配置"}}}
