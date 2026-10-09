@@ -55,9 +55,20 @@ const HTML_PAGE = `
   </header>
   <section class="card" aria-label="生成配音">
     <form id="speech-form">
+      <label for="input-type">输入模式</label>
+      <select id="input-type"><option value="text">纯文本</option><option value="ssml">SSML · 分段停顿与语调</option></select>
+      <p id="ssml-hint" class="hint" hidden>使用完整 speak / voice 文档，音色须与下方选择一致。语速以 prosody 标签为准。缅甸语不支持微软的词级 emphasis 重音，节点会保留正文并移除该标签。</p>
       <label for="input">配音文案</label>
       <textarea id="input" required maxlength="1500" placeholder="粘贴缅甸语、中文或英语短视频文案…"></textarea>
-      <small>单次最多 1500 个字符，适合一段短视频配音。</small>
+      <small id="input-limit">单次最多 1500 个字符，适合一段短视频配音。</small>
+      <details><summary>查看缅甸语 SSML 示例</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">&lt;speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="my-MM"&gt;
+  &lt;voice name="my-MM-NilarNeural"&gt;
+    &lt;prosody rate="+8%" pitch="+3%"&gt;
+      မင်္ဂလာပါ။ &lt;break time="180ms"/&gt;
+      SUN MAY Passion Fruit ၁ လီတာဗူးလေးကို ရေခဲလေးနဲ့ သောက်ကြည့်နော်။
+    &lt;/prosody&gt;
+  &lt;/voice&gt;
+&lt;/speak&gt;</pre></details>
       <div class="grid">
         <div><label for="language">配音语言</label><select id="language"><option value="my-MM">缅甸语</option><option value="zh-CN">中文</option><option value="en-US">英语</option></select></div>
         <div><label for="voice">声音</label><select id="voice"></select></div>
@@ -139,6 +150,13 @@ const HTML_PAGE = `
     element('voice').replaceChildren();
     presets[element('language').value].forEach(pair => element('voice').add(new Option(pair[1], pair[0])));
   }
+  function updateInputMode() {
+    const ssml = element('input-type').value === 'ssml';
+    element('input').maxLength = ssml ? 6000 : 1500;
+    element('ssml-hint').hidden = !ssml;
+    element('speed').disabled = busy || ssml;
+    element('input-limit').textContent = ssml ? 'SSML 最多 6000 个字符，正文最多 1500 个字符；支持 break 和 prosody。' : '单次最多 1500 个字符，适合一段短视频配音。';
+  }
   function safeFilename(value) {
     let name = value.trim().replace(/[\\\\/:*?"<>|\\u0000-\\u001f]/g, '_').replace(/[. ]+$/, '');
     if (!name) name = 'sunmay_ad_' + languageNames[element('language').value] + '_v1';
@@ -177,7 +195,7 @@ const HTML_PAGE = `
       title.textContent = item.filename;
       const meta = document.createElement('p');
       meta.className = 'hint';
-      meta.textContent = new Date(item.createdAt).toLocaleString('zh-CN') + ' · ' + item.voice + ' · ' + item.speed + '×';
+      meta.textContent = new Date(item.createdAt).toLocaleString('zh-CN') + ' · ' + item.voice + ' · ' + (item.inputType === 'ssml' ? 'SSML 分段控制' : item.speed + '×');
       const preview = document.createElement('p');
       preview.className = 'preview';
       preview.textContent = item.input.slice(0, 120) + (item.input.length > 120 ? '…' : '');
@@ -193,6 +211,8 @@ const HTML_PAGE = `
         updateVoices();
         element('voice').value = item.voice;
         element('speed').value = String(item.speed);
+        element('input-type').value = item.inputType || 'text';
+        updateInputMode();
         element('filename').value = item.filename;
         element('input').focus();
         setStatus('已载入文案和声音设置，可修改后再次生成。');
@@ -224,6 +244,8 @@ const HTML_PAGE = `
     }
   }
   updateVoices();
+  updateInputMode();
+  element('input-type').addEventListener('change', updateInputMode);
   const historyReady = loadHistory();
   element('clear-history').addEventListener('click', async () => {
     if (busy || !historyItems.length || !window.confirm('确认清空所有本地历史录音？此操作无法撤销，请先下载需要保留的音频。')) return;
@@ -246,9 +268,12 @@ const HTML_PAGE = `
     event.preventDefault();
     if (busy) return;
     const input = element('input').value.trim();
-    if (!input || input.length > 1500) { setStatus('请输入 1–1500 个字符的文案。', true); return; }
+    const inputType = element('input-type').value;
+    const limit = inputType === 'ssml' ? 6000 : 1500;
+    if (!input || input.length > limit) { setStatus('请输入 1–' + limit + ' 个字符的文案。', true); return; }
+    if (inputType === 'text' && input.startsWith('<speak')) { setStatus('检测到 SSML，请先切换输入模式。', true); return; }
     const item = {
-      id: createClipId(), createdAt: Date.now(), input,
+      id: createClipId(), createdAt: Date.now(), input, inputType,
       language: element('language').value, voice: element('voice').value,
       speed: Number(element('speed').value), filename: safeFilename(element('filename').value)
     };
@@ -260,13 +285,14 @@ const HTML_PAGE = `
     try {
       const response = await fetch('/v1/audio/speech', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input, voice: item.voice, speed: item.speed })
+        body: JSON.stringify({ input, voice: item.voice, speed: item.speed, input_type: inputType })
       });
       if (!response.ok) {
         const error = await response.json().catch(() => null);
         throw new Error(error && error.error && error.error.message || '语音服务返回错误（' + response.status + '）');
       }
       if (!(response.headers.get('content-type') || '').includes('audio/')) throw new Error('语音服务未返回音频，请重试。');
+      const warning = response.headers.get('X-TTS-Warning');
       item.blob = await response.blob();
       if (!item.blob.size) throw new Error('语音服务返回了空音频，请重试。');
       showResult(item);
@@ -276,7 +302,7 @@ const HTML_PAGE = `
         historyItems.unshift(item);
         historyItems = historyItems.slice(0, 20);
         renderHistory();
-        setStatus('配音已生成并保存到本地历史。');
+        setStatus('配音已生成并保存到本地历史。' + (warning ? ' 当前音色不支持 emphasis，已保留正文并移除重音标签。' : ''));
       } catch (error) {
         setStatus('配音已生成，但本地保存失败（可能空间不足或存储被禁用）。请立即下载 MP3。', true);
       }
@@ -286,6 +312,7 @@ const HTML_PAGE = `
       busy = false;
       element('clear-history').disabled = !historyItems.length;
       Array.from(element('speech-form').elements).forEach(control => { control.disabled = false; });
+      updateInputMode();
       element('generate').textContent = '生成配音';
     }
   });
@@ -381,11 +408,15 @@ async function handleRequest(request) {
                 speed = '1.0',
                 volume = '0',
                 pitch = '0',
-                style = "general"
+                style = "general",
+                input_type = "text"
             } = requestBody;
 
             if (typeof input !== "string" || !input.trim()) {
                 return speechValidationError("请输入非空文案");
+            }
+            if (input_type !== "text" && input_type !== "ssml") {
+                return speechValidationError("input_type 必须为 text 或 ssml");
             }
             if (typeof voice !== "string" || !/^[a-z]{2,3}-[A-Z]{2}-[A-Za-z0-9]+Neural$/.test(voice)) {
                 return speechValidationError("音色 ID 格式无效");
@@ -395,6 +426,20 @@ async function handleRequest(request) {
                 Number(speed) < 0.5 || Number(speed) > 2 || Number(pitch) < -50 || Number(pitch) > 50 ||
                 typeof style !== "string" || !/^[a-z]+$/.test(style)) {
                 return speechValidationError("语速、音量、音调或风格参数无效");
+            }
+            if (input_type === "ssml") {
+                let document;
+                try { document = normalizeSsml(input, voice); }
+                catch (error) { return speechValidationError(error.message); }
+                const audio = await getAudioChunk(document.ssml, voice, '+0%', '+0Hz', '+0%', 'general',
+                    'audio-24khz-48kbitrate-mono-mp3', 3, true);
+                return new Response(audio, {
+                    headers: {
+                        'Content-Type': 'audio/mpeg', ...makeCORSHeaders(),
+                        'Access-Control-Expose-Headers': 'X-TTS-Warning',
+                        ...(document.emphasisRemoved ? { 'X-TTS-Warning': 'unsupported-emphasis-removed' } : {})
+                    }
+                });
             }
             let rate = Math.round((Number(speed) - 1.0) * 100);
             let numVolume = parseInt(String(parseFloat(volume) * 100));
@@ -440,6 +485,99 @@ function speechValidationError(message) {
         status: 400,
         headers: { "Content-Type": "application/json", ...makeCORSHeaders() }
     });
+}
+
+// 仅解析短视频节点支持的 SSML 子集，并重新序列化；不接受外部实体、音频或任意 XML 扩展。
+function normalizeSsml(input, selectedVoice) {
+    if (input.length > 6000) throw new Error('SSML 文档不能超过 6000 个字符');
+    const source = input.replace(/<!--[\s\S]*?-->/g, '').trim();
+    const tokens = source.match(/<[^>]*>|[^<]+/g) || [];
+    if (tokens.join('') !== source) throw new Error('SSML 标签未闭合');
+    const stack = [];
+    const output = [];
+    let roots = 0, voices = 0, spokenText = '', emphasisRemoved = false;
+    const emphasisSupported = ['en-US-GuyNeural', 'en-US-DavisNeural', 'en-US-JaneNeural'].includes(selectedVoice);
+    const fail = message => { throw new Error('SSML：' + message); };
+    const isXmlCharacter = code => code === 9 || code === 10 || code === 13 ||
+        (code >= 32 && code <= 0xd7ff) || (code >= 0xe000 && code <= 0xfffd) || (code >= 0x10000 && code <= 0x10ffff);
+    function decode(value) {
+        if (/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\da-fA-F]+);)/.test(value)) fail('请将正文中的 & 写成 &amp;');
+        const entities = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+        const decoded = value.replace(/&([^;]+);/g, (_, entity) => {
+            if (Object.hasOwn(entities, entity)) return entities[entity];
+            const code = entity.startsWith('#x') ? parseInt(entity.slice(2), 16) : Number(entity.slice(1));
+            if (!isXmlCharacter(code)) fail('包含无效字符实体');
+            return String.fromCodePoint(code);
+        });
+        if ([...decoded].some(character => !isXmlCharacter(character.codePointAt(0)))) fail('包含无效 XML 字符');
+        return decoded;
+    }
+    function attributes(raw) {
+        const result = Object.create(null);
+        const pattern = /\s+([A-Za-z_:][\w:.-]*)\s*=\s*("([^"]*)"|'([^']*)')/y;
+        let position = 0;
+        while (raw.slice(position).trim()) {
+            pattern.lastIndex = position;
+            const match = pattern.exec(raw);
+            if (!match || Object.hasOwn(result, match[1])) fail('属性格式无效或重复');
+            if (/[<>]/.test(match[3] ?? match[4])) fail('属性中不能包含标签');
+            result[match[1]] = decode(match[3] ?? match[4]);
+            position = pattern.lastIndex;
+        }
+        return result;
+    }
+    for (const token of tokens) {
+        if (!token.startsWith('<')) {
+            const text = decode(token);
+            if (!stack.includes('voice') && text.trim()) fail('正文必须放在 voice 内');
+            if (stack.includes('voice')) spokenText += text;
+            output.push(escapeXmlText(text));
+            continue;
+        }
+        const closing = token.match(/^<\/([a-z]+)\s*>$/);
+        if (closing) {
+            if (stack.pop() !== closing[1]) fail('标签嵌套或闭合不正确');
+            if (closing[1] !== 'emphasis' || emphasisSupported) output.push('</' + closing[1] + '>');
+            continue;
+        }
+        const opening = token.match(/^<([a-z]+)([\s\S]*?)(\/?)>$/);
+        if (!opening) fail('不支持声明、DOCTYPE、CDATA 或未知标签');
+        const [, tag, raw, slash] = opening;
+        const allowed = { speak: ['version', 'xmlns', 'xml:lang'], voice: ['name'], prosody: ['rate', 'pitch', 'volume'], break: ['time'], emphasis: ['level'] };
+        if (!Object.hasOwn(allowed, tag)) fail('不支持 ' + tag + ' 标签');
+        const attrs = attributes(raw);
+        if (Object.keys(attrs).some(name => !allowed[tag].includes(name))) fail(tag + ' 含有不支持的属性');
+        const parent = stack.at(-1);
+        if (tag === 'speak') {
+            if (parent || ++roots !== 1 || slash) fail('需要一个完整的 speak 根标签');
+            if (attrs.version !== '1.0' || attrs.xmlns !== 'http://www.w3.org/2001/10/synthesis' ||
+                attrs['xml:lang'] !== selectedVoice.split('-').slice(0, 2).join('-')) fail('speak 的版本、命名空间或语言与所选音色不符');
+        } else if (tag === 'voice') {
+            if (parent !== 'speak' || ++voices !== 1 || slash || attrs.name !== selectedVoice) fail('需要一个与下拉框音色一致的 voice');
+        } else if (!['voice', 'prosody', 'emphasis'].includes(parent)) fail(tag + ' 必须放在 voice 或 prosody 内');
+        if (tag === 'break') {
+            const time = (attrs.time || '').match(/^(\d+(?:\.\d+)?)(ms|s)$/);
+            if (!time || Number(time[1]) * (time[2] === 's' ? 1000 : 1) > 3000 || !slash) fail('break 请使用 0–3000ms 的自闭合标签');
+        } else if (slash) fail(tag + ' 不能自闭合');
+        if (tag === 'prosody') {
+            for (const [name, value] of Object.entries(attrs)) {
+                const parameter = value.match(/^([+-]?\d+(?:\.\d+)?)(%|Hz)$/);
+                const number = parameter && Number(parameter[1]);
+                if (!parameter || (name !== 'pitch' && parameter[2] !== '%') ||
+                    (name === 'rate' && (number < -50 || number > 100)) ||
+                    (name === 'pitch' && Math.abs(number) > (parameter[2] === '%' ? 20 : 50)) ||
+                    (name === 'volume' && Math.abs(number) > 100)) fail('prosody 的语速、音调或音量超出支持范围');
+            }
+        }
+        if (tag === 'emphasis' && attrs.level && !['strong', 'moderate', 'none', 'reduced'].includes(attrs.level)) fail('emphasis level 无效');
+        if (tag === 'emphasis' && !emphasisSupported) emphasisRemoved = true;
+        else output.push('<' + tag + Object.entries(attrs).map(([name, value]) => ' ' + name + '="' + escapeXmlText(value) + '"').join('') + (slash ? '/>' : '>'));
+        if (!slash) stack.push(tag);
+        if (stack.length > 12) fail('标签嵌套过深');
+    }
+    if (stack.length || roots !== 1 || voices !== 1 || !spokenText.trim()) fail('文档结构不完整或没有正文');
+    if (spokenText.trim().length > 1500) fail('正文不能超过 1500 个字符');
+    return { ssml: output.join(''), emphasisRemoved };
 }
 
 async function handleOptions(request) {
@@ -608,7 +746,7 @@ async function getVoice(text, voiceName = "zh-CN-XiaoxiaoNeural", rate = '+0%', 
 
 
 //获取单个音频数据（增强错误处理和重试机制）
-async function getAudioChunk(text, voiceName, rate, pitch, volume, style, outputFormat = 'audio-24khz-48kbitrate-mono-mp3', maxRetries = 3) {
+async function getAudioChunk(text, voiceName, rate, pitch, volume, style, outputFormat = 'audio-24khz-48kbitrate-mono-mp3', maxRetries = 3, isSsml = false) {
     const retryDelay = 500; // 重试延迟500ms
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -619,7 +757,7 @@ async function getAudioChunk(text, voiceName, rate, pitch, volume, style, output
             // 处理文本中的延迟标记
             let m = text.match(/\[(\d+)\]\s*?$/);
             let slien = 0;
-            if (m && m.length == 2) {
+            if (!isSsml && m && m.length == 2) {
                 slien = parseInt(m[1]);
                 text = text.replace(m[0], '');
             }
@@ -629,7 +767,7 @@ async function getAudioChunk(text, voiceName, rate, pitch, volume, style, output
                 throw new Error("文本块为空");
             }
             
-            if (text.length > 2000) {
+            if (text.length > (isSsml ? 6000 : 2000)) {
                 throw new Error(`文本块过长: ${text.length} 字符，最大支持2000字符`);
             }
             
@@ -641,7 +779,7 @@ async function getAudioChunk(text, voiceName, rate, pitch, volume, style, output
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36 Edg/127.0.0.0",
                     "X-Microsoft-OutputFormat": outputFormat
                 },
-                body: getSsml(text, voiceName, rate, pitch, volume, style, slien)
+                body: isSsml ? text : getSsml(text, voiceName, rate, pitch, volume, style, slien)
             });
 
             if (!response.ok) {

@@ -25,6 +25,16 @@
 
 ## API
 
+### 分段 SSML 配音
+
+页面选择“SSML 分段停顿与语调”，粘贴完整的 `speak` 文档，并选择与 `voice name` 一致的声音。页面内提供缅甸语短句示例；历史会保存完整标记和输入模式。
+
+支持 `speak`、单个 `voice`、`prosody`、`break` 和 `emphasis`。文档最多 6000 字符，正文最多 1500 字符；单次停顿最多 3 秒。语速、音调和音量以文档中的 `prosody` 为准，页面语速选择在此模式下停用。不接受外部音频、实体声明或多声音文档。
+
+缅甸语 Nilar/Thiha 不支持 `emphasis` 重音控制。本节点会保留正文、移除该标签并提示；支持情况参见[微软 SSML 文档](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/speech-synthesis-markup-voice)。停顿与语调控制有助于调整节奏，实际自然度仍需试听。
+
+API 在 JSON 中设置 `input_type: 'ssml'`，`input` 填完整 SSML，`voice` 与文档一致。默认 `input_type: 'text'` 保持纯文本兼容；发生重音降级时返回 `X-TTS-Warning: unsupported-emphasis-removed`。
+
 现有 `POST /v1/audio/speech` 保持可用，返回 `audio/mpeg`。新增 JSON 输入校验，非法请求返回 400，非 POST 请求返回 405。
 
 ```javascript

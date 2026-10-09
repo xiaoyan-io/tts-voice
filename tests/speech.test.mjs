@@ -18,6 +18,17 @@ function runtime(upstream) {
 const request = body => new Request('https://local.test/v1/audio/speech', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
 });
+const ssml = (content, voice = 'my-MM-NilarNeural', language = 'my-MM') =>
+    '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="' + language + '"><voice name="' + voice + '">' + content + '</voice></speak>';
+function mockSpeech(bodies) {
+    return async (url, options) => {
+        if (String(url).includes('/apps/endpoint')) {
+            return Response.json({ t: 'header.' + btoa(JSON.stringify({ exp: Date.now() / 1000 + 3600 })) + '.signature', r: 'test-region' });
+        }
+        bodies.push(options.body);
+        return new Response(new Uint8Array([73, 68, 51, 1]), { headers: { 'Content-Type': 'audio/mpeg' } });
+    };
+}
 
 test('页面模板中的浏览器脚本可解析，保留六个声音预设', async () => {
     const context = runtime();
@@ -74,4 +85,63 @@ test('三种语言与三档语速均正确传递上游，1.2 对应 +20%', async
             assert.ok(ssmlBodies.at(-1).includes('name="' + voice + '"'));
         }
     }
+});
+
+test('SSML 分段控制直传上游，缅甸语 emphasis 保留正文并提示降级', async () => {
+    const bodies = [];
+    const context = runtime(mockSpeech(bodies));
+    const input = ssml('<!-- 分段口播 --><prosody rate="+8%" pitch="+5%">မင်္ဂလာပါ<break time="150ms"/><emphasis level="strong">SUN MAY</emphasis></prosody>');
+    const response = await context.worker.fetch(request({ input, input_type: 'ssml', voice: 'my-MM-NilarNeural', speed: 0.8 }));
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('X-TTS-Warning'), 'unsupported-emphasis-removed');
+    assert.ok(bodies[0].includes('<prosody rate="+8%" pitch="+5%">'));
+    assert.ok(bodies[0].includes('<break time="150ms"/>SUN MAY'));
+    assert.ok(!bodies[0].includes('emphasis'));
+    assert.ok(!bodies[0].includes('&lt;speak'));
+    assert.ok(!bodies[0].includes('-20%'));
+});
+
+test('SSML 实体正确转义，支持的英语音色保留重音标签', () => {
+    const context = runtime();
+    const result = context.normalizeSsml(ssml('<emphasis level="strong">A &amp; B &#x1f34a; &lt;C&gt;</emphasis>', 'en-US-GuyNeural', 'en-US'), 'en-US-GuyNeural');
+    assert.ok(result.ssml.includes('<emphasis level="strong">A &amp; B 🍊 &lt;C&gt;</emphasis>'));
+    assert.equal(result.emphasisRemoved, false);
+});
+
+test('SSML 错误、外部资源、实体声明和不匹配音色在访问上游前返回 400', async () => {
+    const context = runtime();
+    const invalid = [
+        '<!DOCTYPE speak [<!ENTITY x SYSTEM "file:///secret">]>' + ssml('&x;'),
+        ssml('<audio src="https://example.test/private"/>'),
+        ssml('<prosody rate="+8%">Hello'),
+        ssml('<break time="9000ms"/>Hello'),
+        ssml('<break time="150ms"></break>Hello'),
+        ssml('<prosody rate="+200%">Hello</prosody>'),
+        ssml('<prosody pitch="+25%">Hello</prosody>'),
+        ssml('<prosody rate="+8%" rate="+9%">Hello</prosody>'),
+        ssml('<prosody src="https://example.test">Hello</prosody>'),
+        ssml('A & B'), ssml('&#0;'), ssml('&#xD800;'), ssml(''),
+        ssml('Hello', 'my-MM-ThihaNeural'),
+        ssml('Hello', 'my-MM-NilarNeural', 'zh-CN'),
+        ssml('Hello') + ssml('Second root'),
+        ssml('<prosody>Hello</prosody')
+    ];
+    for (const input of invalid) {
+        const response = await context.worker.fetch(request({ input, input_type: 'ssml', voice: 'my-MM-NilarNeural' }));
+        assert.equal(response.status, 400, input);
+    }
+    assert.equal((await context.worker.fetch(request({ input: 'hello', input_type: 'xml' }))).status, 400);
+});
+
+test('SSML 整体发送且独立限制文档与正文长度，纯文本仍转义 XML', async () => {
+    const bodies = [];
+    const context = runtime(mockSpeech(bodies));
+    const input = ssml(' '.repeat(2500) + '<prosody rate="+5%">Hello</prosody>');
+    assert.equal((await context.worker.fetch(request({ input, input_type: 'ssml', voice: 'my-MM-NilarNeural' }))).status, 200);
+    assert.equal(bodies.length, 1);
+    assert.equal((await context.worker.fetch(request({ input: ssml('x'.repeat(1501)), input_type: 'ssml', voice: 'my-MM-NilarNeural' }))).status, 400);
+    assert.equal((await context.worker.fetch(request({ input: ssml(' '.repeat(6000) + 'Hello'), input_type: 'ssml', voice: 'my-MM-NilarNeural' }))).status, 400);
+    const plain = '<prosody rate="+8%">Hello</prosody>';
+    assert.equal((await context.worker.fetch(request({ input: plain }))).status, 200);
+    assert.ok(bodies.at(-1).includes('&lt;prosody rate=&quot;+8%&quot;&gt;'));
 });
